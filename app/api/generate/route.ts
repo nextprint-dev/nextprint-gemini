@@ -10,19 +10,9 @@ export async function POST(req: NextRequest) {
 
     if (!geminiKey) return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
 
-    // ── STEP 1: Gemini refines the user prompt into a detailed image prompt ──
-    const systemPrompt = `You are an expert AI prompt engineer for a sportswear company called nextprint.in.
-The customer has selected a jersey style and described their design idea.
-Your job: turn their input into a highly detailed, professional prompt for an AI image generator (Stable Diffusion).
-Rules:
-- The jersey must be shown as a flat-lay product photograph on a clean white or light grey studio background
-- No human models or faces
-- Describe colors with precise names (e.g. "royal blue", "neon gold")
-- Describe patterns, textures, logos, and placement clearly
-- Mention the jersey collar/sleeve type from the mockup style
-- Output ONLY the final image prompt — no explanations, no preamble`;
+    const systemPrompt = `You are an expert AI prompt engineer for a sportswear company called nextprint.in. Turn the customer's jersey style and design idea into a detailed Stable Diffusion image prompt. Output ONLY the prompt, no explanations. The jersey must be flat-lay on white background, no humans or faces.`;
 
-    const userMessage = `Mockup style: ${mockupStyle}. Customer's design idea: "${prompt}"`;
+    const userMessage = `Jersey style: ${mockupStyle}. Design idea: "${prompt}"`;
 
     const geminiRes = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -35,7 +25,7 @@ Rules:
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ parts: [{ text: userMessage }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 300 },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 500 },
         }),
       }
     );
@@ -48,7 +38,6 @@ Rules:
     const geminiData = await geminiRes.json();
     const refinedPrompt = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || prompt;
 
-    // ── STEP 2: Generate the jersey image using Stable Diffusion ──
     let imageUrl: string | null = null;
 
     if (sdKey) {
@@ -57,8 +46,8 @@ Rules:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           key: sdKey,
-          prompt: refinedPrompt + ", professional product photography, flat lay, studio lighting, sharp details, high resolution",
-          negative_prompt: "human, person, face, hands, low quality, blurry, watermark, text, deformed",
+          prompt: refinedPrompt + ", professional product photography, flat lay, studio lighting, high resolution",
+          negative_prompt: "human, person, face, hands, low quality, blurry, watermark, deformed",
           width: "512",
           height: "512",
           samples: "1",
@@ -73,8 +62,8 @@ Rules:
         const sdData = await sdRes.json();
         if (sdData.status === "success" && sdData.output?.[0]) {
           imageUrl = sdData.output[0];
-        } else if (sdData.status === "processing") {
-          imageUrl = sdData.future_links?.[0] || null;
+        } else if (sdData.status === "processing" && sdData.future_links?.[0]) {
+          imageUrl = sdData.future_links[0];
         }
       }
     }
@@ -85,6 +74,7 @@ Rules:
       imageUrl,
       mockupStyle,
       hasImage: !!imageUrl,
+      sdKeyPresent: !!sdKey,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Failed" }, { status: 500 });
