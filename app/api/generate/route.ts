@@ -1,59 +1,20 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, mockupStyle, mockupImageBase64 } = await req.json();
-
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    }
-
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-    const fullPrompt = `You are a professional sports jersey designer for NextPrint, an Indian custom jersey manufacturer.
-
-The customer has selected a "${mockupStyle}" jersey style mockup.
-
-Customer's design request: "${prompt}"
-
-Generate a detailed, vivid description of the jersey design AND create an SVG design that would look great on a ${mockupStyle} jersey.
-
-Respond with ONLY a JSON object in this exact format:
-{
-  "designDescription": "A detailed description of the design for the customer",
-  "colors": {
-    "primary": "#hexcolor",
-    "secondary": "#hexcolor", 
-    "accent": "#hexcolor",
-    "text": "#hexcolor"
-  },
-  "pattern": "solid|stripes|gradient|geometric|diagonal",
-  "teamName": "extracted team name from prompt or empty string",
-  "number": "jersey number if mentioned or empty string",
-  "designElements": ["list", "of", "design", "elements"]
-}`;
-
-    const result = await model.generateContent(fullPrompt);
-    const response = result.response.text();
-    
-    // Clean and parse JSON
-    const cleaned = response.replace(/```json|```/g, "").trim();
+    const { prompt, mockupStyle } = await req.json();
+    if (!prompt) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "API key not configured" }, { status: 500 });
+    const fullPrompt = `You are a jersey designer. Customer wants: "${prompt}" on a "${mockupStyle}" jersey. Respond ONLY with raw JSON no backticks: {"designDescription":"description","colors":{"primary":"#hexcolor","secondary":"#hexcolor","accent":"#hexcolor","text":"#hexcolor"},"pattern":"solid","teamName":"team name or empty","number":"number or empty","designElements":["el1"]}`;
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:fullPrompt}]}]})});
+    if (!response.ok) { const err = await response.json(); throw new Error(err.error?.message || "Gemini API error"); }
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const cleaned = text.replace(/```json|```/g,"").trim();
     const design = JSON.parse(cleaned);
-
-    return NextResponse.json({ 
-      success: true, 
-      design,
-      mockupStyle 
-    });
-
+    return NextResponse.json({ success: true, design, mockupStyle });
   } catch (error: any) {
-    console.error("Gemini API error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to generate design" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message || "Failed" }, { status: 500 });
   }
 }
