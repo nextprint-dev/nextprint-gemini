@@ -10,7 +10,17 @@ export async function POST(req: NextRequest) {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (!geminiKey) return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
 
-    const systemPrompt = `You are an expert AI prompt engineer for a sportswear company called nextprint.in. Turn the customer's jersey style and design idea into a detailed image prompt. Output ONLY the prompt, no explanations. The jersey must be flat-lay on white background, no humans or faces.`;
+    const systemPrompt = `You are an expert sportswear designer for nextprint.in. 
+The customer describes their jersey design. Return ONLY a valid JSON object:
+{
+  "colors": {
+    "primary": "#hexcode",
+    "secondary": "#hexcode",
+    "accent": "#hexcode"
+  },
+  "description": "2 sentence design description for the customer"
+}
+No markdown, no backticks, just raw JSON.`;
 
     const geminiRes = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -31,18 +41,24 @@ export async function POST(req: NextRequest) {
     }
 
     const geminiData = await geminiRes.json();
-    const refinedPrompt = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || prompt;
+    const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "{}";
 
-    // Use Pollinations AI - completely free, no API key needed
-    const encodedPrompt = encodeURIComponent(refinedPrompt + ", sportswear, flat lay, white background, product photography");
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${Date.now()}`;
+    let design;
+    try {
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      design = JSON.parse(cleaned);
+    } catch {
+      design = {
+        colors: { primary: "#1a3a8f", secondary: "#c8a400", accent: "#ffffff" },
+        description: "Your custom jersey design with the selected colors."
+      };
+    }
 
     return NextResponse.json({
       success: true,
-      refinedPrompt,
-      imageUrl,
+      colors: design.colors,
+      refinedPrompt: design.description,
       mockupStyle,
-      hasImage: true,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Failed" }, { status: 500 });
